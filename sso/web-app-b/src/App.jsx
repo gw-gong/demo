@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react'
 
 const APP_API = 'http://127.0.0.1:8082'
 const APP_ORIGIN = 'http://127.0.0.1:3002'
+const SSO_ORIGIN = 'http://127.0.0.1:8080'
+const SILENT_CHECK_TIMEOUT_MS = 2000
 
 const styles = {
   page: {
@@ -98,14 +100,70 @@ function App() {
       .catch((res) => {
         if (res && res.status === 401) {
           setUser(null)
-          return
+          return Promise.reject(res)
         }
         setError('请求失败')
         setUser(null)
       })
 
   useEffect(() => {
-    fetchMe().finally(() => setLoading(false))
+    let iframe = null
+    let timeoutId = null
+    let messageHandler = null
+
+    const cleanup = () => {
+      if (timeoutId) clearTimeout(timeoutId)
+      timeoutId = null
+      if (iframe?.parentNode) iframe.parentNode.removeChild(iframe)
+      iframe = null
+      if (messageHandler) {
+        window.removeEventListener('message', messageHandler)
+        messageHandler = null
+      }
+    }
+
+    const trySilentLogin = () => {
+      const getTokenUrl = `${APP_API}/get_token`
+      const silentCheckUrl = `${SSO_ORIGIN}/silent-check?origin=${encodeURIComponent(APP_ORIGIN)}&service=${encodeURIComponent(getTokenUrl)}`
+
+      messageHandler = (event) => {
+        if (event.origin !== SSO_ORIGIN) return
+        const data = event.data
+        if (!data || data.type !== 'SSO_TICKET' || !data.ticket) return
+
+        cleanup()
+
+        fetch(`${APP_API}/get_token?ticket=${encodeURIComponent(data.ticket)}`, { credentials: 'include' })
+          .then((res) => (res.ok ? res.json() : Promise.reject(res)))
+          .then(() => fetchMe())
+          .finally(() => setLoading(false))
+          .catch(() => setLoading(false))
+      }
+
+      window.addEventListener('message', messageHandler)
+
+      timeoutId = setTimeout(() => {
+        cleanup()
+        setLoading(false)
+      }, SILENT_CHECK_TIMEOUT_MS)
+
+      iframe = document.createElement('iframe')
+      iframe.setAttribute('src', silentCheckUrl)
+      iframe.style.cssText = 'position:absolute;left:-9999px;width:1px;height:1px;border:none;'
+      document.body.appendChild(iframe)
+    }
+
+    fetchMe()
+      .then(() => setLoading(false))
+      .catch((res) => {
+        if (res && res.status === 401) {
+          trySilentLogin()
+        } else {
+          setLoading(false)
+        }
+      })
+
+    return () => cleanup()
   }, [])
 
   const handleLogin = () => {

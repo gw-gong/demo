@@ -72,7 +72,7 @@ func main() {
 			allowedOrigins[i] = strings.TrimSpace(allowedOrigins[i])
 		}
 	} else {
-		allowedOrigins = []string{"http://127.0.0.1:3001", "http://127.0.0.1:3002", "http://127.0.0.1:8081/callback", "http://127.0.0.1:8082/callback"}
+		allowedOrigins = []string{"http://127.0.0.1:3001", "http://127.0.0.1:3002", "http://127.0.0.1:8081/callback", "http://127.0.0.1:8082/callback", "http://127.0.0.1:8081/get_token", "http://127.0.0.1:8082/get_token"}
 	}
 	jwtSecret := os.Getenv("JWT_SECRET")
 	if jwtSecret == "" {

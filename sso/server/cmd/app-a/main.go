@@ -44,6 +44,7 @@ func main() {
 		backendOrigin = "http://127.0.0.1:8081"
 	}
 	callbackURL := strings.TrimSuffix(backendOrigin, "/") + "/callback"
+	getTokenURL := strings.TrimSuffix(backendOrigin, "/") + "/get_token"
 	ssoOrigin := os.Getenv("SSO_ORIGIN")
 	if ssoOrigin == "" {
 		ssoOrigin = "http://127.0.0.1:8080"
@@ -86,8 +87,8 @@ func main() {
 		c.Redirect(http.StatusFound, ssoOrigin+"/login?service="+url.QueryEscape(callbackURL))
 	})
 
-	validateTicket := func(ticket string) (user *users.User, token string, err error) {
-		reqURL := ssoOrigin + "/service_validate?service=" + url.QueryEscape(callbackURL) + "&ticket=" + url.QueryEscape(ticket)
+	validateTicket := func(ticket, serviceURL string) (user *users.User, token string, err error) {
+		reqURL := ssoOrigin + "/service_validate?service=" + url.QueryEscape(serviceURL) + "&ticket=" + url.QueryEscape(ticket)
 		resp, err := http.Get(reqURL)
 		if err != nil {
 			return nil, "", err
@@ -113,7 +114,7 @@ func main() {
 			c.String(http.StatusBadRequest, "missing ticket")
 			return
 		}
-		user, token, err := validateTicket(ticket)
+		user, token, err := validateTicket(ticket, callbackURL)
 		if err != nil || user == nil || token == "" {
 			c.String(http.StatusBadRequest, "invalid or expired ticket")
 			return
@@ -128,7 +129,7 @@ func main() {
 			c.AbortWithStatus(http.StatusBadRequest)
 			return
 		}
-		user, token, err := validateTicket(ticket)
+		user, token, err := validateTicket(ticket, getTokenURL)
 		if err != nil || user == nil || token == "" {
 			c.AbortWithStatus(http.StatusBadRequest)
 			return

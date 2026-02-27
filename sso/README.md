@@ -1,11 +1,15 @@
 # SSO 单点登录 Demo（CAS + iframe 静默）
 
-基于 CAS（Central Authentication Service）协议的单点登录 Demo：Golang 后端 + React 前端，JWT 作为 Token，Session 与用户数据放在 **mock-db** 目录下文件存储。业务后台提供 `/login` 与 `/callback`，登录由后端 302 到 SSO，SSO 回调业务 `/callback` 携带 ticket，业务用 ticket 向 SSO 校验并写 Cookie；支持 iframe 静默取 ticket 后调业务 `/get_token` 无跳转登录；登出由前端调业务 `POST /api/logout`（后端代调 SSO 并清 Cookie）。
+基于 CAS（Central Authentication Service）协议的单点登录 Demo：Golang 后端 + React 前端，JWT 作为 Token，Session 与用户数据放在 **mock-db** 目录下文件存储。
+
+- **点击登录**：业务后端提供 `GET /login`、`GET /callback`。用户点击登录后 302 到 SSO，登录成功后 SSO 302 到业务 **AppA/callback** 或 **AppB/callback** 并携带 ticket，业务用 ticket 向 SSO 校验（service 为 callback URL）并写 Cookie。
+- **静默登录**：页面刷新时若未登录，前端内嵌 iframe 加载 SSO `/silent-check`，传 **service=业务 get_token 的完整 URL**（如 AppB/get_token）。若浏览器已带 SSO session，iframe 内请求 `/api/silent-ticket` 拿到 ticket，经 `postMessage` 传给父页面，父页面请求业务 `GET /get_token?ticket=xxx`，业务用 ticket 向 SSO 校验（service 为 get_token URL）并写 Cookie，无跳转完成登录。
+- **登出**：前端调业务 `POST /api/logout`，后端从 Cookie 解析 sessionID 并删除全局 session，前端清空用户态。
 
 ## 架构概览
 
-- **SSO 中心**：二进制 `server/sso`，维护全局 session，提供 `/login`、`/service_validate`、`/api/me`、`/silent-check`、`/api/silent-ticket` 等。登出由业务站删除全局 session。
-- **业务站**：二进制 `server/app-a`、`server/app-b`，提供 `GET /login`、`GET /callback`、`GET /get_token`、`POST /api/logout`、`GET /api/me`。
+- **SSO 中心**：二进制 `server/sso`，维护全局 session，提供 `/login`、`/service_validate`、`/api/me`、`/silent-check`、`/api/silent-ticket` 等。ticket 与 **service**（业务 URL）绑定：重定向登录用 callback URL，静默登录用 get_token URL。登出由业务站删除全局 session。
+- **业务站**：二进制 `server/app-a`、`server/app-b`，提供 `GET /login`、`GET /callback`（重定向登录）、`GET /get_token`（静默登录）、`POST /api/logout`、`GET /api/me`。
 
 ## 端口与访问方式
 
@@ -81,9 +85,9 @@ sso/
 
 ## 流程说明
 
-### 登录流程时序图
+### 登录流程时序图（重定向）
 
-用户点击业务站「登录」后，跳转业务后端 `/login`，由后端 302 到 SSO，登录成功后 SSO 302 到业务 `/callback`，业务用 ticket 向 SSO 换取 JWT 并写 Cookie，再 302 回前端首页。
+用户点击业务站「登录」后，跳转业务后端 `/login`，由后端 302 到 SSO，登录成功后 SSO 302 到业务 **AppA/callback** 或 **AppB/callback**，业务用 ticket 向 SSO 换取 JWT（service 为 callback URL）并写 Cookie，再 302 回前端首页。
 
 ```mermaid
 sequenceDiagram
@@ -93,16 +97,16 @@ sequenceDiagram
   participant S as SSO
 
   U->>F: 点击登录
-  F->>U: 302 到 B/login
+  F->>U: 302 到 AppA/login
   U->>B: GET /login
-  B->>U: 302 到 S/login?service=B/callback
+  B->>U: 302 到 SSO/login?service=AppA/callback
   U->>S: GET /login
   S->>U: 展示登录页
   U->>S: POST 用户名密码
-  S->>S: 创建 session，生成 ticket
-  S->>U: 302 到 B/callback?ticket=ST-xxx
+  S->>S: 创建 session，生成 ticket（绑定 service=AppA/callback）
+  S->>U: 302 到 AppA/callback?ticket=ST-xxx
   U->>B: GET /callback?ticket=xxx
-  B->>S: GET service_validate?service=...&ticket=xxx
+  B->>S: GET service_validate?service=AppA/callback&ticket=xxx
   S->>B: user + token
   B->>U: Set-Cookie + 302 到 F 主页
   U->>F: 访问主页（带 Cookie）
@@ -115,7 +119,7 @@ sequenceDiagram
 
 ### 静默登录（iframe）流程时序图
 
-当业务前端需要「无跳转」登录时（例如用户已在其他 Tab 登录过 SSO），可内嵌 iframe 加载 SSO 的 `/silent-check`。若浏览器已携带 SSO session Cookie，iframe 内脚本请求 `/api/silent-ticket` 拿到 ticket，通过 `postMessage` 传给父页面，父页面再调业务 `GET /get_token?ticket=xxx`，业务后端用 ticket 向 SSO 换取 JWT 并写 Cookie，返回 200，前端不跳转即完成登录。
+当业务前端需要「无跳转」登录时（例如页面刷新且 `/api/me` 返回 401），会先请求 `/api/me`，若 401 则内嵌 iframe 加载 SSO 的 `/silent-check`，**service 参数为业务 get_token 的完整 URL**（如 AppB/get_token）。若浏览器已携带 SSO session Cookie，iframe 内脚本请求 `/api/silent-ticket?service=AppB/get_token` 拿到 ticket（ticket 绑定到 get_token URL），通过 `postMessage` 传给父页面，父页面再调业务 `GET /get_token?ticket=xxx`，业务后端用 **service=AppB/get_token** 向 SSO 校验 ticket 并换取 JWT、写 Cookie，返回 200，前端无跳转即完成登录。超时约 2 秒则展示「未登录」。
 
 ```mermaid
 sequenceDiagram
@@ -125,25 +129,26 @@ sequenceDiagram
   participant B as 业务后端
   participant S as SSO
 
-  F->>F: 创建 iframe，src=SSO/silent-check?origin=...&service=B/callback
+  F->>B: GET /api/me（credentials）
+  B->>F: 401
+  F->>F: 创建 iframe，src=SSO/silent-check?origin=...&service=AppB/get_token
   F->>U: 加载 iframe
   U->>Iframe: GET SSO/silent-check（带 SSO Cookie）
   S->>Iframe: 返回 HTML（内嵌脚本）
-  Iframe->>S: fetch /api/silent-ticket?service=B/callback（credentials: include）
+  Iframe->>S: fetch /api/silent-ticket?service=AppB/get_token（credentials: include）
   alt 已登录 SSO
-    S->>S: 校验 Cookie，生成 ticket
+    S->>S: 校验 Cookie，生成 ticket（绑定 service=AppB/get_token）
     S->>Iframe: 200 且 ticket
-    Iframe->>Iframe: postMessage("SSO_TICKET", ticket)
-    Iframe->>F: postMessage(ticket)
+    Iframe->>F: postMessage(SSO_TICKET, ticket)
     F->>B: GET /get_token?ticket=xxx（credentials: include）
-    B->>S: GET service_validate?service=B/callback&ticket=xxx
+    B->>S: GET service_validate?service=AppB/get_token&ticket=xxx
     S->>B: user + token
     B->>F: Set-Cookie + 200 且 user
-    F->>F: 刷新用户态，无跳转
-  else 未登录 SSO
+    F->>F: fetchMe 刷新用户态，无跳转
+  else 未登录 SSO 或超时
     S->>Iframe: 401
-    Iframe->>F: 无消息或超时
-    F->>F: 可降级为跳转 B/login
+    Iframe->>F: 无消息或超时（约 2s）
+    F->>F: 展示未登录 + 登录按钮
   end
 ```
 
@@ -151,7 +156,7 @@ sequenceDiagram
 
 ### 登出流程时序图
 
-用户点击「退出」，前端带 Cookie 请求业务后端 `POST /api/logout`，后端从 Cookie 解析 sessionID 并删除全局 session，返回 200；前端清空用户态展示「未登录」。
+用户点击「退出」，前端带 Cookie 请求业务后端 `POST /api/logout`，后端从 Cookie 解析 sessionID 并删除全局 session（mock-db），返回 200；前端清空用户态展示「未登录」。不调用 SSO 的 logout 接口。
 
 ```mermaid
 sequenceDiagram
@@ -174,43 +179,43 @@ sequenceDiagram
 
 ---
 
-- **打开业务站主页**：请求本站 `/api/me`（后端直接读 mock-db 校验 JWT 与 session）；已登录则展示用户信息与退出按钮，未登录则展示「未登录」与登录按钮（不自动跳转）。
-- **点击登录**：跳转本站 `GET /login`，后端 302 到 SSO 登录页，登录后 SSO 302 到本站 `/callback?ticket=xxx`，后端校验 ticket、写 Cookie、302 回前端首页。
-- **静默登录（iframe）**：前端可内嵌 iframe 加载 `SSO/silent-check?origin=前端 origin&service=业务 callback URL`；若浏览器已带 SSO session Cookie，iframe 内会请求 `/api/silent-ticket` 拿到 ticket，通过 `postMessage({ type: 'SSO_TICKET', ticket })` 传给父页面；父页面再请求本站 `GET /get_token?ticket=xxx`，后端用 ticket 向 SSO 换取 JWT 并写 Cookie、返回 200，前端无跳转即登录。当前 Demo 前端未启用该流程，仅提供「登录」按钮跳转。
-- **退出**：前端请求本站 `POST /api/logout`（带 Cookie），业务后端从 Cookie 取 token、解析出 sessionID，在全局 session 存储（mock-db/sessions.txt）中删除该 session，返回 200；前端清空用户态。不调用 SSO，SSO 无 logout 接口。
+- **打开业务站主页**：请求本站 `GET /api/me`（后端校验 JWT 与 session）；已登录则展示用户信息与退出按钮；未登录则先尝试静默登录（见下），失败再展示「未登录」与登录按钮。
+- **点击登录（重定向）**：跳转本站 `GET /login`，后端 302 到 SSO 登录页；登录后 SSO 302 到本站 **AppA/callback** 或 **AppB/callback** 并带 ticket；后端用 **callback URL** 作为 service 向 SSO 校验 ticket、写 Cookie、302 回前端首页。
+- **静默登录（iframe）**：当 `/api/me` 返回 401 时，前端内嵌 iframe 加载 `SSO/silent-check?origin=前端 origin&service=业务 get_token 完整 URL`（如 AppB/get_token）。若浏览器已带 SSO session Cookie，iframe 内请求 `/api/silent-ticket?service=AppB/get_token` 拿到 ticket，通过 `postMessage({ type: 'SSO_TICKET', ticket })` 传给父页面；父页面请求本站 `GET /get_token?ticket=xxx`，后端用 **get_token URL** 作为 service 向 SSO 校验 ticket、写 Cookie、返回 200，前端无跳转即登录。超时约 2 秒未收到 ticket 则展示「未登录」。
+- **退出**：前端请求本站 `POST /api/logout`（带 Cookie），业务后端从 Cookie 取 token、解析 sessionID，在 mock-db/sessions.txt 中删除该 session，返回 200；前端清空用户态。
 - **Cookie 跨域携带**：生产环境可设置 `COOKIE_SAME_SITE=None`、`COOKIE_SECURE=true`（需 HTTPS）；本地开发默认 `SameSite=Lax`。
-- **同 host 多业务站**：Cookie 按 (域名, 路径, 名称) 区分，**不含端口**。3001/3002 都访问 127.0.0.1 时，若都用同名 cookie（如 `token`），后登录的会覆盖先登录的。本 Demo 中 app-a 默认用 `token_a`、app-b 默认用 `token_b`，可通过 `COOKIE_NAME` 覆盖。
+- **同 host 多业务站**：Cookie 按 (域名, 路径, 名称) 区分，**不含端口**。本 Demo 中 app-a 默认用 `token_a`、app-b 默认用 `token_b`，可通过 `COOKIE_NAME` 覆盖。
 
 ## 配置项
 
-**π>server（SSO 与业务站共用 .env 或环境变量）**
+**server（SSO 与业务站共用 .env 或环境变量）**
 
 SSO 进程（`./sso`）使用：
 
 
-| 变量                    | 说明                                   |
-| --------------------- | ------------------------------------ |
-| JWT_SECRET            | JWT 签名密钥（与业务站一致）                     |
-| MOCK_DB               | mock-db 目录路径，默认 ../mock-db           |
-| SESSION_FILE_PATH     | 可选，覆盖 session 文件路径                   |
-| USERS_FILE            | 可选，覆盖用户文件路径                          |
-| SSO_ORIGIN            | SSO 后端地址                             |
-| SSO_FRONTEND_URL      | SSO 登录页地址                            |
-| ALLOWED_SERVICE_BASES | 允许的 service（业务 callback 完整 URL），逗号分隔 |
+| 变量                    | 说明                                                                 |
+| --------------------- | ------------------------------------------------------------------ |
+| JWT_SECRET            | JWT 签名密钥（与业务站一致）                                             |
+| MOCK_DB               | mock-db 目录路径，默认 ../mock-db                                       |
+| SESSION_FILE_PATH     | 可选，覆盖 session 文件路径                                             |
+| USERS_FILE            | 可选，覆盖用户文件路径                                                    |
+| SSO_ORIGIN            | SSO 后端地址                                                          |
+| SSO_FRONTEND_URL      | SSO 登录页地址                                                         |
+| ALLOWED_SERVICE_BASES | 允许的 service 完整 URL，逗号分隔（需包含各业务的 callback 与 get_token，如 AppA/callback、AppA/get_token、AppB/callback、AppB/get_token） |
 
 
 业务站（`./app-a` / `./app-b`）使用：
 
 
-| 变量               | 说明                                                                                             |
-| ---------------- | ---------------------------------------------------------------------------------------------- |
-| MOCK_DB          | mock-db 目录路径，默认 ../mock-db                                                                     |
-| JWT_SECRET       | 与 SSO 一致，用于校验 JWT                                                                              |
-| FRONTEND_ORIGIN  | 前端首页地址，如 [http://127.0.0.1:3001（callback](http://127.0.0.1:3001（callback) 成功后 302 目标）          |
-| BACKEND_ORIGIN   | 本业务后端地址，用于拼 callback URL，默认 [http://127.0.0.1:8081（app-b](http://127.0.0.1:8081（app-b) 为 8082） |
-| SSO_ORIGIN       | SSO 后端地址，默认 [http://127.0.0.1:8080](http://127.0.0.1:8080)                                     |
-| COOKIE_SAME_SITE | 可选，Lax（默认）或 None（跨站携带需 None）                                                                   |
-| COOKIE_SECURE    | 可选，true 时 Cookie 仅 HTTPS 发送                                                                    |
-| COOKIE_NAME      | 可选，Token Cookie 名称；未设置时 app-a 为 token_a、app-b 为 token_b（同 host 多应用时避免互相覆盖）           |
+| 变量               | 说明                                                                                       |
+| ---------------- | ---------------------------------------------------------------------------------------- |
+| MOCK_DB          | mock-db 目录路径，默认 ../mock-db                                                             |
+| JWT_SECRET       | 与 SSO 一致，用于校验 JWT                                                                      |
+| FRONTEND_ORIGIN  | 前端首页地址（callback 成功后 302 目标），如 http://127.0.0.1:3001（AppA）、3002（AppB）                    |
+| BACKEND_ORIGIN   | 本业务后端地址，用于拼 callback URL 与 get_token URL，默认 http://127.0.0.1:8081（AppA）、8082（AppB）        |
+| SSO_ORIGIN       | SSO 后端地址，默认 http://127.0.0.1:8080                                                       |
+| COOKIE_SAME_SITE | 可选，Lax（默认）或 None（跨站携带需 None）                                                           |
+| COOKIE_SECURE    | 可选，true 时 Cookie 仅 HTTPS 发送                                                                |
+| COOKIE_NAME      | 可选，Token Cookie 名称；未设置时 app-a 为 token_a、app-b 为 token_b（同 host 多应用时避免互相覆盖）               |
 
 
