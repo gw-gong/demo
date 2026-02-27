@@ -38,4 +38,4 @@ sequenceDiagram
 
 - **后端**：`cd server && go run .`（默认 `:8080`，需配置 `.env` 中的 `GOOGLE_CLIENT_SECRET`）
 - **前端**：`cd web && npm install && npm run dev`（默认 `http://127.0.0.1:5173`）
-- 使用 **http://127.0.0.1:5173** 访问前端，与后端重定向地址一致。
+- 使用 `http://127.0.0.1:5173` 访问前端，与后端重定向地址一致。

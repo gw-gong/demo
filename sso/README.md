@@ -193,29 +193,29 @@ sequenceDiagram
 SSO 进程（`./sso`）使用：
 
 
-| 变量                    | 说明                                                                 |
-| --------------------- | ------------------------------------------------------------------ |
-| JWT_SECRET            | JWT 签名密钥（与业务站一致）                                             |
-| MOCK_DB               | mock-db 目录路径，默认 ../mock-db                                       |
-| SESSION_FILE_PATH     | 可选，覆盖 session 文件路径                                             |
-| USERS_FILE            | 可选，覆盖用户文件路径                                                    |
-| SSO_ORIGIN            | SSO 后端地址                                                          |
-| SSO_FRONTEND_URL      | SSO 登录页地址                                                         |
+| 变量                    | 说明                                                                                                                |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| JWT_SECRET            | JWT 签名密钥（与业务站一致）                                                                                                  |
+| MOCK_DB               | mock-db 目录路径，默认 ../mock-db                                                                                        |
+| SESSION_FILE_PATH     | 可选，覆盖 session 文件路径                                                                                                |
+| USERS_FILE            | 可选，覆盖用户文件路径                                                                                                       |
+| SSO_ORIGIN            | SSO 后端地址                                                                                                          |
+| SSO_FRONTEND_URL      | SSO 登录页地址                                                                                                         |
 | ALLOWED_SERVICE_BASES | 允许的 service 完整 URL，逗号分隔（需包含各业务的 callback 与 get_token，如 AppA/callback、AppA/get_token、AppB/callback、AppB/get_token） |
 
 
 业务站（`./app-a` / `./app-b`）使用：
 
 
-| 变量               | 说明                                                                                       |
-| ---------------- | ---------------------------------------------------------------------------------------- |
-| MOCK_DB          | mock-db 目录路径，默认 ../mock-db                                                             |
-| JWT_SECRET       | 与 SSO 一致，用于校验 JWT                                                                      |
-| FRONTEND_ORIGIN  | 前端首页地址（callback 成功后 302 目标），如 http://127.0.0.1:3001（AppA）、3002（AppB）                    |
-| BACKEND_ORIGIN   | 本业务后端地址，用于拼 callback URL 与 get_token URL，默认 http://127.0.0.1:8081（AppA）、8082（AppB）        |
-| SSO_ORIGIN       | SSO 后端地址，默认 http://127.0.0.1:8080                                                       |
-| COOKIE_SAME_SITE | 可选，Lax（默认）或 None（跨站携带需 None）                                                           |
-| COOKIE_SECURE    | 可选，true 时 Cookie 仅 HTTPS 发送                                                                |
-| COOKIE_NAME      | 可选，Token Cookie 名称；未设置时 app-a 为 token_a、app-b 为 token_b（同 host 多应用时避免互相覆盖）               |
+| 变量               | 说明                                                                                                                           |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| MOCK_DB          | mock-db 目录路径，默认 ../mock-db                                                                                                   |
+| JWT_SECRET       | 与 SSO 一致，用于校验 JWT                                                                                                            |
+| FRONTEND_ORIGIN  | 前端首页地址（callback 成功后 302 目标），如`http://127.0.0.1:3001`（AppA）、3002（AppB）            |
+| BACKEND_ORIGIN   | 本业务后端地址，用于拼 callback URL 与 get_token URL，默认 `http://127.0.0.1:8081`（AppA）、8082（AppB） |
+| SSO_ORIGIN       | SSO 后端地址，默认 `http://127.0.0.1:8080`                                                                  |
+| COOKIE_SAME_SITE | 可选，Lax（默认）或 None（跨站携带需 None）                                                                                                 |
+| COOKIE_SECURE    | 可选，true 时 Cookie 仅 HTTPS 发送                                                                                                  |
+| COOKIE_NAME      | 可选，Token Cookie 名称；未设置时 app-a 为 token_a、app-b 为 token_b（同 host 多应用时避免互相覆盖）                                                   |
 
 
