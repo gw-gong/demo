@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import './App.css'
 
-const API_BASE = 'http://127.0.0.1:8081'
+const API_BASE = 'http://127.0.0.1:8080'
 const LOGIN_URL = `${API_BASE}/auth/login`
 
 function App() {

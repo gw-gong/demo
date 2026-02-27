@@ -1,18 +1,18 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
 	"os"
-	"crypto/rand"
-	"encoding/gob"
-	"encoding/hex"
+	"sync"
+	"time"
 
 	"github.com/gin-contrib/cors"
-	"github.com/gin-contrib/sessions"
-	"github.com/gin-contrib/sessions/cookie"
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/joho/godotenv"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
@@ -20,8 +20,10 @@ import (
 
 const (
 	clientID     = "352562790655-4tecvuqivispfalnv99ksqqst3nbjnna.apps.googleusercontent.com"
-	redirectURL  = "http://127.0.0.1:8081/auth/callback"
+	redirectURL  = "http://127.0.0.1:8080/auth/callback"
 	userinfoURL  = "https://www.googleapis.com/oauth2/v2/userinfo"
+	cookieName   = "token"
+	jwtExpiry    = 24 * time.Hour
 )
 
 var (
@@ -30,11 +32,17 @@ var (
 		"https://www.googleapis.com/auth/userinfo.email",
 		"https://www.googleapis.com/auth/userinfo.profile",
 	}
+	stateStore sync.Map // key: state string, value: struct{}
+	userStore  sync.Map // key: user.ID, value: *UserInfo
 )
+
+type jwtClaims struct {
+	jwt.RegisteredClaims
+	Sub string `json:"sub"`
+}
 
 func main() {
 	_ = godotenv.Load()
-	gob.Register((*UserInfo)(nil))
 
 	clientSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
 	if clientSecret == "" {
@@ -44,10 +52,14 @@ func main() {
 	if frontendURL == "" {
 		frontendURL = "http://127.0.0.1:5173"
 	}
-	sessionSecret := os.Getenv("SESSION_SECRET")
-	if sessionSecret == "" {
-		sessionSecret = "google-oauth-demo-secret-change-in-production"
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		jwtSecret = os.Getenv("SESSION_SECRET")
 	}
+	if jwtSecret == "" {
+		jwtSecret = "google-oauth-demo-secret-change-in-production"
+	}
+	secretBytes := []byte(jwtSecret)
 
 	oauth2Config := &oauth2.Config{
 		ClientID:     clientID,
@@ -58,8 +70,6 @@ func main() {
 	}
 
 	r := gin.Default()
-	store := cookie.NewStore([]byte(sessionSecret))
-	r.Use(sessions.Sessions("session", store))
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{frontendURL},
 		AllowCredentials: true,
@@ -73,22 +83,19 @@ func main() {
 			c.AbortWithStatus(http.StatusInternalServerError)
 			return
 		}
-		session := sessions.Default(c)
-		session.Set("oauth_state", state)
-		_ = session.Save()
+		stateStore.Store(state, struct{}{})
 		url := oauth2Config.AuthCodeURL(state)
 		c.Redirect(http.StatusFound, url)
 	})
 
 	r.GET("/auth/callback", func(c *gin.Context) {
-		session := sessions.Default(c)
-		storedState, ok := session.Get("oauth_state").(string)
-		if !ok {
+		state := c.Query("state")
+		if state == "" {
 			c.Redirect(http.StatusFound, frontendURL+"?error=missing_state")
 			return
 		}
-		state := c.Query("state")
-		if state == "" || state != storedState {
+		_, loaded := stateStore.LoadAndDelete(state)
+		if !loaded {
 			c.Redirect(http.StatusFound, frontendURL+"?error=invalid_state")
 			return
 		}
@@ -107,23 +114,91 @@ func main() {
 			c.Redirect(http.StatusFound, frontendURL+"?error=userinfo_failed")
 			return
 		}
-		session.Set("user", user)
-		session.Delete("oauth_state")
-		_ = session.Save()
+		userStore.Store(user.ID, user)
+		tokenString, err := signJWT(user.ID, secretBytes, jwtExpiry)
+		if err != nil {
+			c.Redirect(http.StatusFound, frontendURL+"?error=jwt_failed")
+			return
+		}
+		http.SetCookie(c.Writer, &http.Cookie{
+			Name:     cookieName,
+			Value:    tokenString,
+			Path:     "/",
+			MaxAge:   int(jwtExpiry.Seconds()),
+			HttpOnly: true,
+			SameSite: http.SameSiteLaxMode,
+			Secure:   false,
+		})
 		c.Redirect(http.StatusFound, frontendURL)
 	})
 
 	r.GET("/api/me", func(c *gin.Context) {
-		session := sessions.Default(c)
-		user := session.Get("user")
-		if user == nil {
+		tokenString, err := c.Cookie(cookieName)
+		if err != nil || tokenString == "" {
 			c.AbortWithStatus(http.StatusUnauthorized)
 			return
 		}
+		sub, err := parseJWT(tokenString, secretBytes)
+		if err != nil {
+			c.AbortWithStatus(http.StatusUnauthorized)
+			return
+		}
+		val, ok := userStore.Load(sub)
+		if !ok {
+			c.AbortWithStatus(http.StatusUnauthorized)
+			return
+		}
+		user := val.(*UserInfo)
 		c.JSON(http.StatusOK, user)
 	})
 
-	_ = r.Run(":8081")
+	r.GET("/auth/logout", func(c *gin.Context) {
+		tokenString, _ := c.Cookie(cookieName)
+		if tokenString != "" {
+			if sub, err := parseJWT(tokenString, secretBytes); err == nil {
+				userStore.Delete(sub)
+			}
+		}
+		http.SetCookie(c.Writer, &http.Cookie{
+			Name:     cookieName,
+			Value:    "",
+			Path:     "/",
+			MaxAge:   -1,
+			HttpOnly: true,
+			SameSite: http.SameSiteLaxMode,
+		})
+		c.Redirect(http.StatusFound, frontendURL)
+	})
+
+	_ = r.Run(":8080")
+}
+
+func signJWT(sub string, secret []byte, exp time.Duration) (string, error) {
+	now := time.Now()
+	claims := jwtClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(now.Add(exp)),
+			IssuedAt:  jwt.NewNumericDate(now),
+			Subject:   sub,
+		},
+		Sub: sub,
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString(secret)
+}
+
+func parseJWT(tokenString string, secret []byte) (sub string, err error) {
+	token, err := jwt.ParseWithClaims(tokenString, &jwtClaims{}, func(token *jwt.Token) (interface{}, error) {
+		return secret, nil
+	})
+	if err != nil || !token.Valid {
+		return "", err
+	}
+	claims, ok := token.Claims.(*jwtClaims)
+	if !ok {
+		return "", jwt.ErrTokenInvalidClaims
+	}
+	return claims.Sub, nil
 }
 
 func randomState() (string, error) {
