@@ -27,31 +27,6 @@ sequenceDiagram
     React->>User: 展示邮箱、头像、姓名等
 ```
 
-## 项目结构
-
-```mermaid
-flowchart LR
-    subgraph frontend [前端 web]
-        React[React + Vite]
-        React -->|GET /api/me credentials| API
-        React -->|跳转| Login
-    end
-    subgraph backend [后端 server]
-        Gin[Gin]
-        Login["/auth/login"]
-        Callback["/auth/callback"]
-        API["/api/me"]
-        Gin --> Login
-        Gin --> Callback
-        Gin --> API
-    end
-    subgraph external [外部]
-        Google[Google OAuth]
-    end
-    Login -->|302 授权 URL| Google
-    Google -->|302 code| Callback
-```
-
 ## 目录说明
 
 | 目录 | 技术栈 | 说明 |
