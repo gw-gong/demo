@@ -74,15 +74,6 @@ func main() {
 		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
 	}))
 
-	setTokenCookie := func(c *gin.Context, token string, maxAge int) {
-		sameSite := http.SameSiteLaxMode
-		if cookieSameSiteStr == "None" {
-			sameSite = http.SameSiteNoneMode
-		}
-		c.SetSameSite(sameSite)
-		c.SetCookie(tokenCookieName, token, maxAge, "/", "", cookieSecure, true)
-	}
-
 	r.GET("/login", func(c *gin.Context) {
 		c.Redirect(http.StatusFound, ssoOrigin+"/login?service="+url.QueryEscape(callbackURL))
 	})
@@ -119,7 +110,7 @@ func main() {
 			c.String(http.StatusBadRequest, "invalid or expired ticket")
 			return
 		}
-		setTokenCookie(c, token, tokenCookieMaxAge)
+		c.SetCookie(tokenCookieName, token, tokenCookieMaxAge, "/", "", cookieSecure, true)
 		c.Redirect(http.StatusFound, frontendOrigin+"/")
 	})
 
@@ -134,7 +125,7 @@ func main() {
 			c.AbortWithStatus(http.StatusBadRequest)
 			return
 		}
-		setTokenCookie(c, token, tokenCookieMaxAge)
+		c.SetCookie(tokenCookieName, token, tokenCookieMaxAge, "/", "", cookieSecure, true)
 		c.JSON(http.StatusOK, gin.H{"user": user, "ok": true})
 	})
 
