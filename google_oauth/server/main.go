@@ -19,7 +19,6 @@ import (
 )
 
 const (
-	clientID     = "352562790655-4tecvuqivispfalnv99ksqqst3nbjnna.apps.googleusercontent.com"
 	redirectURL  = "http://127.0.0.1:8080/auth/callback"
 	userinfoURL  = "https://www.googleapis.com/oauth2/v2/userinfo"
 	cookieName   = "token"
@@ -44,6 +43,10 @@ type jwtClaims struct {
 func main() {
 	_ = godotenv.Load()
 
+	clientID := os.Getenv("GOOGLE_CLIENT_ID")
+	if clientID == "" {
+		panic("GOOGLE_CLIENT_ID is required in .env")
+	}
 	clientSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
 	if clientSecret == "" {
 		panic("GOOGLE_CLIENT_SECRET is required in .env")
