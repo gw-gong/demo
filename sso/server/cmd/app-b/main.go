@@ -25,7 +25,7 @@ const (
 func main() {
 	mockDB := os.Getenv("MOCK_DB")
 	if mockDB == "" {
-		mockDB = "./mock-db"
+		mockDB = "../../mock-db"
 	}
 	mockDB, _ = filepath.Abs(mockDB)
 	sessionPath := filepath.Join(mockDB, "sessions.txt")

@@ -129,6 +129,11 @@ function App() {
       messageHandler = (event) => {
         if (event.origin !== SSO_ORIGIN) return
         const data = event.data
+        if (data?.type === 'SSO_SILENT_FAIL') {
+          cleanup()
+          setLoading(false)
+          return
+        }
         if (!data || data.type !== 'SSO_TICKET' || !data.ticket) return
 
         cleanup()

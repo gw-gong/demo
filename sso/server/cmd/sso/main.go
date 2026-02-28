@@ -46,7 +46,7 @@ func main() {
 
 	mockDB := os.Getenv("MOCK_DB")
 	if mockDB == "" {
-		mockDB = "./mock-db"
+		mockDB = "../../mock-db"
 	}
 	mockDB, _ = filepath.Abs(mockDB)
 	sessionPath := os.Getenv("SESSION_FILE_PATH")
@@ -281,7 +281,9 @@ func main() {
         try { window.parent.postMessage({ type: "SSO_TICKET", ticket: data.ticket }, origin); } catch (e) {}
       }
     })
-    .catch(function() {});
+    .catch(function() {
+      try { window.parent.postMessage({ type: "SSO_SILENT_FAIL" }, origin); } catch (e) {}
+    });
 })();
 </script></body></html>`
 		c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(html))
