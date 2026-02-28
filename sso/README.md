@@ -99,19 +99,6 @@ sequenceDiagram
 ```
 
 
-- **打开业务站主页**：请求本站 `GET /api/me`（后端校验 JWT 与 session）；已登录则展示用户信息与退出按钮；未登录则先尝试静默登录（见下），失败再展示「未登录」与登录按钮。
-- **点击登录（重定向）**：跳转本站 `GET /login`，后端 302 到 SSO 登录页；登录后 SSO 302 到本站 **AppA/callback** 或 **AppB/callback** 并带 ticket；后端用 **callback URL** 作为 service 向 SSO 校验 ticket、写 Cookie、302 回前端首页。
-- **静默登录（iframe）**：当 `/api/me` 返回 401 时，前端内嵌 iframe 加载 `SSO/silent-check?origin=前端 origin&service=业务 get_token 完整 URL`（如 AppB/get_token）。若浏览器已带 SSO session Cookie，iframe 内请求 `/api/silent-ticket?service=AppB/get_token` 拿到 ticket，通过 `postMessage({ type: 'SSO_TICKET', ticket })` 传给父页面；父页面请求本站 `GET /get_token?ticket=xxx`，后端用 **get_token URL** 作为 service 向 SSO 校验 ticket、写 Cookie、返回 200，前端无跳转即登录。超时约 2 秒未收到 ticket 则展示「未登录」。
-- **退出**：前端请求本站 `POST /api/logout`（带 Cookie），业务后端从 Cookie 取 token、解析 sessionID，在 mock-db/sessions.txt 中删除该 session，返回 200；前端清空用户态。
-- **Cookie 跨域携带**：生产环境可设置 `COOKIE_SAME_SITE=None`、`COOKIE_SECURE=true`（需 HTTPS）；本地开发默认 `SameSite=Lax`。
-- **同 host 多业务站**：Cookie 按 (域名, 路径, 名称) 区分，**不含端口**。本 Demo 中 app-a 默认用 `token_a`、app-b 默认用 `token_b`，可通过 `COOKIE_NAME` 覆盖。
-
-
-## 架构概览
-
-- **SSO 中心**：二进制 `server/sso`，维护全局 session，提供 `/login`、`/service_validate`、`/api/me`、`/silent-check`、`/api/silent-ticket` 等。ticket 与 **service**（业务 URL）绑定：重定向登录用 callback URL，静默登录用 get_token URL。登出由业务站删除全局 session。
-- **业务站**：二进制 `server/app-a`、`server/app-b`，提供 `GET /login`、`GET /callback`（重定向登录）、`GET /get_token`（静默登录）、`POST /api/logout`、`GET /api/me`。
-
 ## 端口与访问方式
 
 使用 **IP + 端口**，无需配置 hosts：
@@ -183,38 +170,3 @@ sso/
    cd sso/server && ./app-b
    cd sso/web-app-b && npm install && npm run dev
   ```
-
-
-## 配置项
-
-**server（SSO 与业务站共用 .env 或环境变量）**
-
-SSO 进程（`./sso`）使用：
-
-
-| 变量                    | 说明                                                                                                                |
-| --------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| JWT_SECRET            | JWT 签名密钥（与业务站一致）                                                                                                  |
-| MOCK_DB               | mock-db 目录路径，默认 ../mock-db                                                                                        |
-| SESSION_FILE_PATH     | 可选，覆盖 session 文件路径                                                                                                |
-| USERS_FILE            | 可选，覆盖用户文件路径                                                                                                       |
-| SSO_ORIGIN            | SSO 后端地址                                                                                                          |
-| SSO_FRONTEND_URL      | SSO 登录页地址                                                                                                         |
-| ALLOWED_SERVICE_BASES | 允许的 service 完整 URL，逗号分隔（需包含各业务的 callback 与 get_token，如 AppA/callback、AppA/get_token、AppB/callback、AppB/get_token） |
-
-
-业务站（`./app-a` / `./app-b`）使用：
-
-
-| 变量               | 说明                                                                                                                           |
-| ---------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| MOCK_DB          | mock-db 目录路径，默认 ../mock-db                                                                                                   |
-| JWT_SECRET       | 与 SSO 一致，用于校验 JWT                                                                                                            |
-| FRONTEND_ORIGIN  | 前端首页地址（callback 成功后 302 目标），如`http://127.0.0.1:3001`（AppA）、3002（AppB）            |
-| BACKEND_ORIGIN   | 本业务后端地址，用于拼 callback URL 与 get_token URL，默认 `http://127.0.0.1:8081`（AppA）、8082（AppB） |
-| SSO_ORIGIN       | SSO 后端地址，默认 `http://127.0.0.1:8080`                                                                  |
-| COOKIE_SAME_SITE | 可选，Lax（默认）或 None（跨站携带需 None）                                                                                                 |
-| COOKIE_SECURE    | 可选，true 时 Cookie 仅 HTTPS 发送                                                                                                  |
-| COOKIE_NAME      | 可选，Token Cookie 名称；未设置时 app-a 为 token_a、app-b 为 token_b（同 host 多应用时避免互相覆盖）                                                   |
-
-
